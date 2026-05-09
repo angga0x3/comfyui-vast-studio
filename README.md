@@ -184,38 +184,47 @@ Sources:
 - https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged
 - https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_Repackaged
 
-### Download with `huggingface-cli`
+### Download with the `hf` CLI
+
+The new `hf` command replaces the deprecated `huggingface-cli` (huggingface_hub
+>= 0.30). On Vast.ai's `vastai/comfy` images it ships pre-installed; on plain
+images run `pip install -U "huggingface_hub[cli]"`.
 
 ```bash
-pip install -U "huggingface_hub[cli]"
 cd ~/ComfyUI
 
 # 1. UNet (WAN 2.2 14B I2V high-noise FP8) ~ 14 GB
-huggingface-cli download Comfy-Org/Wan_2.2_ComfyUI_Repackaged \
+hf download Comfy-Org/Wan_2.2_ComfyUI_Repackaged \
   split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors \
-  --local-dir models/diffusion_models --local-dir-use-symlinks False
+  --local-dir models/diffusion_models
 
 # 2. Text encoder (UMT5-XXL FP8) ~ 6 GB
-huggingface-cli download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
+hf download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
   split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors \
-  --local-dir models/text_encoders --local-dir-use-symlinks False
+  --local-dir models/text_encoders
 
 # 3. VAE (WAN 2.1 VAE — used by WAN 2.2 too) ~ 250 MB
-huggingface-cli download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
+hf download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
   split_files/vae/wan_2.1_vae.safetensors \
-  --local-dir models/vae --local-dir-use-symlinks False
+  --local-dir models/vae
 
 # 4. CLIP-Vision ~ 1.2 GB
-huggingface-cli download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
+hf download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
   split_files/clip_vision/clip_vision_h.safetensors \
-  --local-dir models/clip_vision --local-dir-use-symlinks False
+  --local-dir models/clip_vision
 
-# 5. Flatten the split_files/ subdirs that hf-cli creates so ComfyUI sees the files at the right path:
+# 5. Flatten the split_files/ subdirs that hf creates so ComfyUI sees the files at the right path:
 for d in diffusion_models text_encoders vae clip_vision; do
-  mv "models/$d/split_files/$d/"*.safetensors "models/$d/" 2>/dev/null || true
-  rm -rf "models/$d/split_files"
+  if [ -d "models/$d/split_files/$d" ]; then
+    mv "models/$d/split_files/$d/"*.safetensors "models/$d/"
+    rm -rf "models/$d/split_files"
+  fi
 done
 ```
+
+> The legacy `huggingface-cli download ... --local-dir-use-symlinks False`
+> form prints a deprecation warning and exits without downloading on recent
+> versions. Use `hf download` instead — it never symlinks by default.
 
 ### Verify the layout
 
