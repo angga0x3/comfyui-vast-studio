@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Asset {
+  id        String   @id @default(cuid())
+  kind      String
+  bucket    String
+  key       String
+  mimeType  String
+  size      Int
+  publicUrl String?
+  createdAt DateTime @default(now())
+
+  inputForJobs  Job[] @relation("JobInputImage")
+  outputForJobs Job[] @relation("JobOutput")
+
+  @@index([kind])
+}
+
+model Job {
+  id             String    @id @default(cuid())
+  status         String    @default("queued")
+  presetId       String
+  prompt         String
+  negativePrompt String?
+  width          Int       @default(720)
+  height         Int       @default(1280)
+  length         Int       @default(81)
+  fps            Int       @default(16)
+  seed           Int?
+  steps          Int?
+  cfg            Float?
+  progress       Float     @default(0)
+  promptId       String?
+  errorMessage   String?
+  comfyHistory   String?
+
+  inputImageId String
+  inputImage   Asset  @relation("JobInputImage", fields: [inputImageId], references: [id])
+
+  outputAssetId String?
+  outputAsset   Asset?  @relation("JobOutput", fields: [outputAssetId], references: [id])
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model GpuState {
+  id         String    @id @default("singleton")
+  instanceId String?
+  status     String    @default("unknown")
+  comfyUrl   String?
+  lastJobAt  DateTime?
+  lastSeenAt DateTime?
+  updatedAt  DateTime  @updatedAt
+}
