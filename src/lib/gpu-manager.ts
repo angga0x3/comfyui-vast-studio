@@ -169,7 +169,10 @@ export async function autoShutdownIfIdle(): Promise<{
   const state = await loadOrInit();
   const lastJobAt = state.lastJobAt;
   const idleMs = env.GPU_IDLE_TIMEOUT_MINUTES * 60 * 1000;
-  if (lastJobAt && Date.now() - lastJobAt.getTime() < idleMs) {
+  if (!lastJobAt) {
+    return { stopped: false, reason: "no jobs dispatched yet" };
+  }
+  if (Date.now() - lastJobAt.getTime() < idleMs) {
     return { stopped: false, reason: "within idle window" };
   }
 
