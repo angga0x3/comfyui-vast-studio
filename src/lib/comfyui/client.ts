@@ -7,16 +7,16 @@ export interface ComfyUploadResult {
   type: string;
 }
 
+export interface ComfyOutputFile {
+  filename: string;
+  subfolder: string;
+  type: string;
+  format?: string;
+}
+
 export interface ComfyHistoryEntry {
   status?: { status_str?: string; completed?: boolean; messages?: unknown[] };
-  outputs?: Record<
-    string,
-    {
-      images?: Array<{ filename: string; subfolder: string; type: string }>;
-      gifs?: Array<{ filename: string; subfolder: string; type: string; format?: string }>;
-      videos?: Array<{ filename: string; subfolder: string; type: string; format?: string }>;
-    }
-  >;
+  outputs?: Record<string, Record<string, unknown>>;
   prompt?: unknown;
 }
 

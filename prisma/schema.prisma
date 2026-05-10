@@ -24,22 +24,20 @@ model Asset {
 }
 
 model Job {
-  id             String    @id @default(cuid())
-  status         String    @default("queued")
-  presetId       String
-  prompt         String
-  negativePrompt String?
-  width          Int       @default(720)
-  height         Int       @default(1280)
-  length         Int       @default(81)
-  fps            Int       @default(16)
-  seed           Int?
-  steps          Int?
-  cfg            Float?
-  progress       Float     @default(0)
-  promptId       String?
-  errorMessage   String?
-  comfyHistory   String?
+  id               String  @id @default(cuid())
+  status           String  @default("queued")
+  presetId         String
+  prompt           String
+  seed             Int?
+  steps            Int?
+  cfg              Float?
+  latentResolution Int?
+  octreeResolution Int?
+  voxelThreshold   Float?
+  progress         Float   @default(0)
+  promptId         String?
+  errorMessage     String?
+  comfyHistory     String?
 
   inputImageId String
   inputImage   Asset  @relation("JobInputImage", fields: [inputImageId], references: [id])

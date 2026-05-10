@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Download, ImageIcon, Loader2 } from "lucide-react";
+import { Download, Boxes, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { formatRelativeTime } from "@/lib/utils";
+
+import { ModelViewer } from "./model-viewer";
 
 interface Job {
   id: string;
@@ -15,11 +17,12 @@ interface Job {
   presetId: string;
   prompt: string;
   progress: number;
-  width: number;
-  height: number;
-  length: number;
-  fps: number;
   seed: number | null;
+  steps: number | null;
+  cfg: number | null;
+  latentResolution: number | null;
+  octreeResolution: number | null;
+  voxelThreshold: number | null;
   errorMessage: string | null;
   createdAt: string;
   finishedAt: string | null;
@@ -28,7 +31,10 @@ interface Job {
   outputMime: string | null;
 }
 
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "success" | "warning" | "outline"> = {
+const STATUS_VARIANT: Record<
+  string,
+  "default" | "secondary" | "destructive" | "success" | "warning" | "outline"
+> = {
   queued: "outline",
   starting_gpu: "warning",
   running: "warning",
@@ -36,6 +42,11 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   failed: "destructive",
   canceled: "secondary",
 };
+
+function isMeshMime(mime: string | null): boolean {
+  if (!mime) return false;
+  return mime === "model/gltf-binary" || mime === "model/gltf+json";
+}
 
 export function JobList({ refreshSignal }: { refreshSignal: number }) {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -108,7 +119,11 @@ export function JobList({ refreshSignal }: { refreshSignal: number }) {
               <div className="flex-1 space-y-1">
                 <p className="text-sm">{j.prompt}</p>
                 <p className="text-xs text-muted-foreground">
-                  {j.presetId} · {j.width}×{j.height} · {j.length}f · {j.fps}fps
+                  {j.presetId}
+                  {j.latentResolution != null ? ` · res ${j.latentResolution}` : ""}
+                  {j.octreeResolution != null ? ` · octree ${j.octreeResolution}` : ""}
+                  {j.voxelThreshold != null ? ` · t=${j.voxelThreshold}` : ""}
+                  {j.steps != null ? ` · ${j.steps} steps` : ""}
                   {j.seed != null ? ` · seed ${j.seed}` : ""}
                 </p>
                 {j.errorMessage ? (
@@ -116,13 +131,11 @@ export function JobList({ refreshSignal }: { refreshSignal: number }) {
                 ) : null}
               </div>
               {j.outputUrl ? (
-                <div className="md:w-64">
-                  {j.outputMime?.startsWith("video/") ? (
-                    <video
+                <div className="md:w-80">
+                  {isMeshMime(j.outputMime) ? (
+                    <ModelViewer
                       src={j.outputUrl}
-                      controls
-                      loop
-                      className="aspect-[9/16] w-full rounded-md border bg-black"
+                      className="aspect-square w-full rounded-md border bg-black"
                     />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -139,19 +152,19 @@ export function JobList({ refreshSignal }: { refreshSignal: number }) {
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                     >
-                      <Download className="h-3 w-3" /> Download
+                      <Download className="h-3 w-3" /> Download .glb
                     </Link>
                   </div>
                 </div>
               ) : j.status === "running" || j.status === "starting_gpu" || j.status === "queued" ? (
-                <div className="md:w-64 flex flex-col justify-center gap-2 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                <div className="md:w-80 flex flex-col justify-center gap-2 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    <ImageIcon className="h-3 w-3" />
+                    <Boxes className="h-3 w-3" />
                     {j.status === "queued"
                       ? "Waiting for worker"
                       : j.status === "starting_gpu"
                         ? "Booting GPU"
-                        : "Generating"}
+                        : "Generating mesh"}
                   </span>
                   <Progress value={Math.round((j.progress ?? 0) * 100)} />
                 </div>

@@ -16,7 +16,7 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "ComfyUI Vast Studio",
-  description: "Personal control panel for ComfyUI image-to-video on Vast.ai GPUs",
+  description: "Personal control panel for ComfyUI image-to-3D (Hunyuan3D) on Vast.ai GPUs",
 };
 
 export default function RootLayout({

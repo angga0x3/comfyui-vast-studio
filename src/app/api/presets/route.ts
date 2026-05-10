@@ -9,6 +9,9 @@ export async function GET() {
       id: p.id,
       name: p.name,
       description: p.description,
+      kind: p.kind,
+      outputMime: p.outputMime,
+      outputExt: p.outputExt,
       defaults: p.defaults,
     })),
   });
