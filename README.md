@@ -172,11 +172,11 @@ ComfyUI doesn't ship with the Hunyuan3D weights. You need to download them
 once onto the Vast.ai instance — they live on the instance's disk, so `stop`
 + `start` keeps them around (no re-download). `destroy` wipes the disk.
 
-**Total size: ~8 GB.** A 50 GB instance disk is plenty.
+**Total size: ~7.4 GB.** A 20 GB instance disk is plenty.
 
 | File | Place under | Size |
 | --- | --- | --- |
-| `hunyuan_3d_v2.1.safetensors` | `ComfyUI/models/checkpoints/` | ~8 GB |
+| `hunyuan_3d_v2.1.safetensors` | `ComfyUI/models/checkpoints/` | ~7.4 GB |
 
 Source: https://huggingface.co/Comfy-Org/hunyuan3D_2.1_repackaged
 
@@ -193,15 +193,11 @@ images run `pip install -U "huggingface_hub[cli]"`.
 ```bash
 cd ~/ComfyUI
 
+# The file lives at the root of the repo (Comfy-Org renamed it from
+# split_files/checkpoints/ in mid-2025).
 hf download Comfy-Org/hunyuan3D_2.1_repackaged \
-  split_files/checkpoints/hunyuan_3d_v2.1.safetensors \
+  hunyuan_3d_v2.1.safetensors \
   --local-dir models/checkpoints
-
-# Flatten the split_files/ subdir hf creates so ComfyUI sees the file:
-if [ -d "models/checkpoints/split_files/checkpoints" ]; then
-  mv models/checkpoints/split_files/checkpoints/*.safetensors models/checkpoints/
-  rm -rf models/checkpoints/split_files
-fi
 ```
 
 > The legacy `huggingface-cli download ... --local-dir-use-symlinks False`
