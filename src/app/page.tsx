@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Film } from "lucide-react";
+import { Boxes } from "lucide-react";
 
 import { GpuStatusCard } from "@/components/gpu-status-card";
 import { JobForm } from "@/components/job-form";
@@ -14,11 +14,11 @@ export default function HomePage() {
     <main className="mx-auto max-w-6xl space-y-6 p-6 md:p-10">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Film className="h-6 w-6" />
+          <Boxes className="h-6 w-6" />
           <div>
             <h1 className="text-xl font-semibold tracking-tight">ComfyUI Vast Studio</h1>
             <p className="text-xs text-muted-foreground">
-              Image-to-video on Vast.ai GPUs · auto start/stop on idle
+              Image-to-3D (Hunyuan3D) on Vast.ai GPUs · auto start/stop on idle
             </p>
           </div>
         </div>

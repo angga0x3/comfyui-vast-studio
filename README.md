@@ -1,11 +1,12 @@
 # ComfyUI Vast Studio
 
-Personal control panel for **image-to-video generation** with ComfyUI running on
+Personal control panel for **image-to-3D generation** with ComfyUI running on
 a [Vast.ai](https://vast.ai/) GPU instance.
 
-- Upload an image, pick a workflow preset (default **WAN 2.2 I2V**), enter a prompt → get a video.
+- Upload an image, pick a workflow preset (default **Hunyuan3D 2.1**) → get a textured `.glb` mesh.
 - Auto **start the GPU** when there's a job to run, auto **stop on idle** to save money.
 - Outputs are stored on **Cloudflare R2 / AWS S3** so you can access them from anywhere.
+- The generated `.glb` is rendered in-browser with Google's `<model-viewer>` web component (orbit, AR, lighting).
 - Single-user, optional Basic Auth password to protect the UI.
 
 > Designed for personal use. SQLite + a single background worker, no Redis needed.
@@ -14,10 +15,10 @@ a [Vast.ai](https://vast.ai/) GPU instance.
 
 ```
 [Browser]
-    │  upload image, submit job, watch progress
+    │  upload image, submit job, watch progress, view .glb
     ▼
 [Next.js app  (web + API routes)] ◄── SQLite (jobs, assets, gpu state)
-    │  enqueues Job rows                 R2 / S3 (input image + output video)
+    │  enqueues Job rows                 R2 / S3 (input image + output .glb)
     ▼
 [Worker process  (npm run worker)]
     │  ensure GPU ready (start Vast.ai if stopped → wait for ComfyUI healthy)
@@ -42,11 +43,14 @@ Actions / cron-job.org.
 
 - Node.js 18+ and npm
 - A Vast.ai account with one running GPU instance pre-configured with ComfyUI
-  (24+ GB VRAM recommended; RTX 4090 / A6000 / L40 / 6000 Ada all work).
+  (16+ GB VRAM is enough for shape-only Hunyuan3D 2.1; 24+ GB if you later add
+  the texture-PBR stage. RTX 4090 / A6000 / L40 / 6000 Ada all work).
   - The instance must expose ComfyUI's HTTP port (default 8188) publicly.
   - Vast.ai shows the mapped port like `host:port` in the **"Open Ports"** section.
-  - Required ComfyUI models — see ["Download WAN 2.2 models"](#download-wan-22-models-required) below for the exact files and download commands.
-  - Required custom node: [`ComfyUI-VideoHelperSuite`](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) (provides `VHS_VideoCombine`).
+  - Required ComfyUI model — see ["Download Hunyuan3D 2.1 model"](#download-hunyuan3d-21-model-required) below.
+  - **No custom node required** — Hunyuan3D 2.1 uses ComfyUI's built-in nodes
+    (`EmptyLatentHunyuan3Dv2`, `Hunyuan3Dv2Conditioning`, `VAEDecodeHunyuan3D`,
+    `VoxelToMesh`, `SaveGLB`). Make sure ComfyUI is up to date.
 - A Cloudflare R2 bucket (or AWS S3 bucket) and access keys.
 
 ### 2. Install & configure
@@ -126,63 +130,59 @@ small adapter that injects user inputs into specific node ids.
 2. Drop it into `src/lib/comfyui/workflows/<your-preset>.json`.
 3. Add an entry to `PRESETS` in `src/lib/comfyui/workflows/index.ts`. Implement
    `build(params)` to set the right node inputs from `params.inputImageName`,
-   `params.prompt`, etc.
+   `params.seed`, etc., and set `outputMime` / `outputExt` so the dispatcher
+   knows what to download.
 4. The frontend will list it automatically via `/api/presets`.
 
-### How the WAN 2.2 I2V template injects parameters
+### How the Hunyuan3D 2.1 template injects parameters
 
 | Param | Node id | Inputs key |
 | --- | --- | --- |
-| `inputImageName` | `14` (LoadImage) | `image` |
-| `prompt` | `6` (CLIPTextEncode positive) | `text` |
-| `negativePrompt` | `7` (CLIPTextEncode negative) | `text` |
-| `seed`, `steps`, `cfg` | `3` (KSampler) | `seed`, `steps`, `cfg` |
-| `width`, `height`, `length` | `12` (WanImageToVideo) | `width`, `height`, `length` |
-| `fps` | `9` (VHS_VideoCombine) | `frame_rate` |
+| `inputImageName` | `2` (LoadImage) | `image` |
+| `latentResolution` | `4` (EmptyLatentHunyuan3Dv2) | `resolution` |
+| `seed`, `steps`, `cfg` | `7` (KSampler) | `seed`, `steps`, `cfg` |
+| `octreeResolution` | `8` (VAEDecodeHunyuan3D) | `octree_resolution` |
+| `voxelThreshold` | `9` (VoxelToMesh) | `threshold` |
+| _(output)_ | `10` (SaveGLB) | `filename_prefix=hunyuan3d/ComfyUI` |
 
-If your installation uses different model filenames, edit
-`src/lib/comfyui/workflows/wan22-i2v.json` (UNETLoader, CLIPLoader, VAELoader,
-CLIPVisionLoader nodes).
+If your installation uses a different model filename, edit
+`src/lib/comfyui/workflows/hunyuan3d-2.1.json` — change `ckpt_name` on node
+`1` (ImageOnlyCheckpointLoader).
 
 ## Setting up the Vast.ai instance
 
 1. **Pick a template** that already includes ComfyUI (search the Vast.ai
    templates marketplace), or roll your own based on `nvidia/cuda` and install
-   ComfyUI + custom nodes manually.
+   ComfyUI manually. Make sure the ComfyUI version is recent enough to expose
+   the built-in Hunyuan3D nodes (`SaveGLB`, `VoxelToMesh`, etc.) — any build
+   from mid-2025 onward is fine.
 2. **Open the ComfyUI port**: in the instance config, expose port `8188` (or
    whatever ComfyUI listens on) and note the public `host:port` Vast.ai assigns.
-3. **Install the VHS custom node** (provides the `VHS_VideoCombine` node used
-   by the WAN 2.2 preset):
-   ```bash
-   cd ~/ComfyUI/custom_nodes
-   git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
-   cd ComfyUI-VideoHelperSuite && pip install -r requirements.txt
-   ```
-4. **Download models** — see [next section](#download-wan-22-models-required).
-5. **Restart ComfyUI** so it picks up the new node + models.
-6. **Test**: hit `http://<host>:<port>/system_stats` and confirm you get JSON.
-7. Copy the instance id (numeric, visible in `vastai show instances` or the
+3. **Download the Hunyuan3D 2.1 model** — see [next section](#download-hunyuan3d-21-model-required).
+4. **Restart ComfyUI** so it picks up the new model.
+5. **Test**: hit `http://<host>:<port>/system_stats` and confirm you get JSON,
+   then `http://<host>:<port>/object_info` and confirm `SaveGLB` is present.
+6. Copy the instance id (numeric, visible in `vastai show instances` or the
    web UI URL) into `VAST_INSTANCE_ID`. Copy your API key into `VAST_API_KEY`.
-8. Set `COMFYUI_URL=http://<host>:<port>`.
+7. Set `COMFYUI_URL=http://<host>:<port>`.
 
-## Download WAN 2.2 models (required)
+## Download Hunyuan3D 2.1 model (required)
 
-ComfyUI doesn't ship with the WAN models. You need to download them once onto
-the Vast.ai instance — they live on the instance's disk, so `stop` + `start`
-keeps them around (no re-download). `destroy` wipes the disk.
+ComfyUI doesn't ship with the Hunyuan3D weights. You need to download them
+once onto the Vast.ai instance — they live on the instance's disk, so `stop`
++ `start` keeps them around (no re-download). `destroy` wipes the disk.
 
-**Total size: ~22 GB.** Make sure your Vast.ai instance disk is ≥ 50 GB.
+**Total size: ~7.4 GB.** A 20 GB instance disk is plenty.
 
 | File | Place under | Size |
 | --- | --- | --- |
-| `wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors` | `ComfyUI/models/diffusion_models/` | ~14 GB |
-| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `ComfyUI/models/text_encoders/` | ~6 GB |
-| `wan_2.1_vae.safetensors` | `ComfyUI/models/vae/` | ~250 MB |
-| `clip_vision_h.safetensors` | `ComfyUI/models/clip_vision/` | ~1.2 GB |
+| `hunyuan_3d_v2.1.safetensors` | `ComfyUI/models/checkpoints/` | ~7.4 GB |
 
-Sources:
-- https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged
-- https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_Repackaged
+Source: https://huggingface.co/Comfy-Org/hunyuan3D_2.1_repackaged
+
+This is the **repackaged single-file build** that bundles the DiT, CLIP-Vision
+encoder, and VAE into one checkpoint, so the workflow only needs one
+`ImageOnlyCheckpointLoader` node.
 
 ### Download with the `hf` CLI
 
@@ -193,33 +193,11 @@ images run `pip install -U "huggingface_hub[cli]"`.
 ```bash
 cd ~/ComfyUI
 
-# 1. UNet (WAN 2.2 14B I2V high-noise FP8) ~ 14 GB
-hf download Comfy-Org/Wan_2.2_ComfyUI_Repackaged \
-  split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors \
-  --local-dir models/diffusion_models
-
-# 2. Text encoder (UMT5-XXL FP8) ~ 6 GB
-hf download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
-  split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors \
-  --local-dir models/text_encoders
-
-# 3. VAE (WAN 2.1 VAE — used by WAN 2.2 too) ~ 250 MB
-hf download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
-  split_files/vae/wan_2.1_vae.safetensors \
-  --local-dir models/vae
-
-# 4. CLIP-Vision ~ 1.2 GB
-hf download Comfy-Org/Wan_2.1_ComfyUI_Repackaged \
-  split_files/clip_vision/clip_vision_h.safetensors \
-  --local-dir models/clip_vision
-
-# 5. Flatten the split_files/ subdirs that hf creates so ComfyUI sees the files at the right path:
-for d in diffusion_models text_encoders vae clip_vision; do
-  if [ -d "models/$d/split_files/$d" ]; then
-    mv "models/$d/split_files/$d/"*.safetensors "models/$d/"
-    rm -rf "models/$d/split_files"
-  fi
-done
+# The file lives at the root of the repo (Comfy-Org renamed it from
+# split_files/checkpoints/ in mid-2025).
+hf download Comfy-Org/hunyuan3D_2.1_repackaged \
+  hunyuan_3d_v2.1.safetensors \
+  --local-dir models/checkpoints
 ```
 
 > The legacy `huggingface-cli download ... --local-dir-use-symlinks False`
@@ -230,28 +208,33 @@ done
 
 ```
 ~/ComfyUI/models/
-├── diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors
-├── text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
-├── vae/wan_2.1_vae.safetensors
-└── clip_vision/clip_vision_h.safetensors
+└── checkpoints/hunyuan_3d_v2.1.safetensors
 ```
 
-If any path differs from the above, update the matching node `inputs` in
-`src/lib/comfyui/workflows/wan22-i2v.json` (UNETLoader, CLIPLoader,
-VAELoader, CLIPVisionLoader) — change just the `unet_name` / `clip_name` /
-`vae_name` / `clip_name` fields.
+If the filename or path differs, update node `1`'s `ckpt_name` in
+`src/lib/comfyui/workflows/hunyuan3d-2.1.json`.
 
-### Lighter alternatives
+### About the output
 
-The WAN 2.2 14B FP8 build needs ~24 GB VRAM. If you're testing on a smaller
-GPU, swap to a smaller checkpoint and adjust the workflow:
+- Output format: `.glb` (glTF binary) — single file, includes mesh + textures,
+  rendered in the UI via Google's `<model-viewer>` web component.
+- ComfyUI writes the file to `ComfyUI/output/hunyuan3d/ComfyUI_<N>_.glb`; the
+  worker fetches it via `/view` and uploads it to R2/S3.
+- Expected inference time on an RTX 4090: **~1–3 minutes per job** (mostly
+  KSampler steps + VAE decode + voxel→mesh).
+- VRAM footprint: ~10 GB for shape-only at default `latent_resolution=3072`,
+  `octree_resolution=256`. Increase either for higher quality at the cost of
+  VRAM and time.
 
-- WAN 2.1 5B I2V (~5 GB on disk) — same Comfy-Org repo
-- LTX-Video (Lightricks/LTX-Video) — ~2 GB, very fast, 24 fps native
-- Hunyuan Video I2V — ~10 GB, slower but high quality
+### Tuning quality vs speed
 
-Drop the alternate workflow JSON into `src/lib/comfyui/workflows/` and
-register it in `index.ts` (see "Adding more workflow presets").
+| Setting | Faster / lighter | Higher quality |
+| --- | --- | --- |
+| `latentResolution` | 1024–2048 | 3072–4096 |
+| `octreeResolution` | 128 | 256–384 |
+| `voxelThreshold` | 0.5 | 0.6 (default) |
+| `steps` | 20 | 30–40 |
+| `cfg` | 3 | 5 (default) |
 
 ## Cron / external idle watcher
 
@@ -277,7 +260,9 @@ Or for Vercel Cron, add to `vercel.json`:
   GPU bill stops.
 - For zero idle cost, you can switch to "destroy + recreate", but cold starts
   go from ~30s (start a stopped instance) to ~5–10 min (provision new instance
-  + download models).
+  + download model).
+- Compared to a 27-minute WAN 2.2 video job at ~$0.40/hr, a 2-minute Hunyuan3D
+  job is roughly **13× cheaper per generation** on the same instance.
 
 ## Tech stack
 
@@ -285,6 +270,7 @@ Or for Vercel Cron, add to `vercel.json`:
 - Prisma + SQLite (single-file DB)
 - AWS SDK v3 for S3-compatible storage (R2/S3)
 - WebSocket client (`ws`) for ComfyUI realtime progress
+- Google `<model-viewer>` web component for in-browser 3D preview
 - `tsx` for the worker process
 
 ## License

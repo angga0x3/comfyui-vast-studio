@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Boxes } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,19 +19,22 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { ImageUploader, type UploadedAsset } from "./image-uploader";
 
+interface PresetDefaults {
+  steps: number;
+  cfg: number;
+  latentResolution: number;
+  octreeResolution: number;
+  voxelThreshold: number;
+}
+
 interface PresetMeta {
   id: string;
   name: string;
   description: string;
-  defaults: {
-    width: number;
-    height: number;
-    length: number;
-    fps: number;
-    steps: number;
-    cfg: number;
-    negativePrompt: string;
-  };
+  kind: "3d";
+  outputMime: string;
+  outputExt: string;
+  defaults: PresetDefaults;
 }
 
 export function JobForm({ onCreated }: { onCreated: () => void }) {
@@ -39,11 +42,11 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
   const [presetId, setPresetId] = useState<string>("");
   const [asset, setAsset] = useState<UploadedAsset | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [negativePrompt, setNegativePrompt] = useState("");
-  const [width, setWidth] = useState(720);
-  const [height, setHeight] = useState(1280);
-  const [length, setLength] = useState(81);
-  const [fps, setFps] = useState(16);
+  const [latentResolution, setLatentResolution] = useState(3072);
+  const [octreeResolution, setOctreeResolution] = useState(256);
+  const [voxelThreshold, setVoxelThreshold] = useState(0.6);
+  const [steps, setSteps] = useState(30);
+  const [cfg, setCfg] = useState(5);
   const [seed, setSeed] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,11 +57,12 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
         setPresets(d.presets);
         if (d.presets[0]) {
           setPresetId(d.presets[0].id);
-          setWidth(d.presets[0].defaults.width);
-          setHeight(d.presets[0].defaults.height);
-          setLength(d.presets[0].defaults.length);
-          setFps(d.presets[0].defaults.fps);
-          setNegativePrompt(d.presets[0].defaults.negativePrompt);
+          const dft = d.presets[0].defaults;
+          setLatentResolution(dft.latentResolution);
+          setOctreeResolution(dft.octreeResolution);
+          setVoxelThreshold(dft.voxelThreshold);
+          setSteps(dft.steps);
+          setCfg(dft.cfg);
         }
       })
       .catch(() => toast.error("Failed to load presets"));
@@ -68,11 +72,11 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
     setPresetId(id);
     const p = presets.find((p) => p.id === id);
     if (!p) return;
-    setWidth(p.defaults.width);
-    setHeight(p.defaults.height);
-    setLength(p.defaults.length);
-    setFps(p.defaults.fps);
-    if (!negativePrompt) setNegativePrompt(p.defaults.negativePrompt);
+    setLatentResolution(p.defaults.latentResolution);
+    setOctreeResolution(p.defaults.octreeResolution);
+    setVoxelThreshold(p.defaults.voxelThreshold);
+    setSteps(p.defaults.steps);
+    setCfg(p.defaults.cfg);
   }
 
   async function submit(e: React.FormEvent) {
@@ -82,7 +86,7 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
       return;
     }
     if (!prompt.trim()) {
-      toast.error("Prompt is required");
+      toast.error("Label is required");
       return;
     }
     setSubmitting(true);
@@ -94,11 +98,11 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
           inputAssetId: asset.id,
           presetId,
           prompt: prompt.trim(),
-          negativePrompt: negativePrompt.trim() || undefined,
-          width,
-          height,
-          length,
-          fps,
+          latentResolution,
+          octreeResolution,
+          voxelThreshold,
+          steps,
+          cfg,
           seed: seed ? Number(seed) : undefined,
         }),
       });
@@ -128,7 +132,7 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>2. Workflow & prompt</CardTitle>
+          <CardTitle>2. Workflow & label</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2">
@@ -150,22 +154,13 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
             ) : null}
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="prompt">Prompt</Label>
+            <Label htmlFor="prompt">Label / notes</Label>
             <Textarea
               id="prompt"
-              rows={3}
-              placeholder="Describe the motion, camera, mood…"
+              rows={2}
+              placeholder="Short description for this generation (Hunyuan3D uses the image only — this is just for your reference)"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="neg">Negative prompt</Label>
-            <Textarea
-              id="neg"
-              rows={2}
-              value={negativePrompt}
-              onChange={(e) => setNegativePrompt(e.target.value)}
             />
           </div>
         </CardContent>
@@ -173,35 +168,87 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>3. Output settings</CardTitle>
+          <CardTitle>3. 3D settings</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        <CardContent className="grid grid-cols-2 gap-4 md:grid-cols-3">
           <div className="grid gap-1">
-            <Label htmlFor="w">Width</Label>
-            <Input id="w" type="number" min={64} max={2048} step={8} value={width} onChange={(e) => setWidth(+e.target.value)} />
+            <Label htmlFor="latres">Latent resolution</Label>
+            <Input
+              id="latres"
+              type="number"
+              min={64}
+              max={8192}
+              step={64}
+              value={latentResolution}
+              onChange={(e) => setLatentResolution(+e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Higher = more shape detail (default 3072)</p>
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="h">Height</Label>
-            <Input id="h" type="number" min={64} max={2048} step={8} value={height} onChange={(e) => setHeight(+e.target.value)} />
+            <Label htmlFor="octree">Octree resolution</Label>
+            <Input
+              id="octree"
+              type="number"
+              min={16}
+              max={512}
+              step={16}
+              value={octreeResolution}
+              onChange={(e) => setOctreeResolution(+e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Higher = denser voxel grid (default 256)</p>
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="l">Frames</Label>
-            <Input id="l" type="number" min={9} max={241} step={4} value={length} onChange={(e) => setLength(+e.target.value)} />
+            <Label htmlFor="thr">Voxel threshold</Label>
+            <Input
+              id="thr"
+              type="number"
+              min={-1}
+              max={1}
+              step={0.05}
+              value={voxelThreshold}
+              onChange={(e) => setVoxelThreshold(+e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Surface threshold (default 0.6)</p>
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="fps">FPS</Label>
-            <Input id="fps" type="number" min={1} max={60} value={fps} onChange={(e) => setFps(+e.target.value)} />
+            <Label htmlFor="steps">Steps</Label>
+            <Input
+              id="steps"
+              type="number"
+              min={1}
+              max={80}
+              value={steps}
+              onChange={(e) => setSteps(+e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="cfg">CFG</Label>
+            <Input
+              id="cfg"
+              type="number"
+              min={0}
+              max={20}
+              step={0.5}
+              value={cfg}
+              onChange={(e) => setCfg(+e.target.value)}
+            />
           </div>
           <div className="grid gap-1">
             <Label htmlFor="seed">Seed</Label>
-            <Input id="seed" type="number" placeholder="random" value={seed} onChange={(e) => setSeed(e.target.value)} />
+            <Input
+              id="seed"
+              type="number"
+              placeholder="random"
+              value={seed}
+              onChange={(e) => setSeed(e.target.value)}
+            />
           </div>
         </CardContent>
       </Card>
 
       <Button type="submit" size="lg" disabled={submitting} className="gap-2">
-        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-        Generate video
+        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Boxes className="h-4 w-4" />}
+        Generate 3D model
       </Button>
     </form>
   );

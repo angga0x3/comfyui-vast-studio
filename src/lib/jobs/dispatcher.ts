@@ -1,29 +1,25 @@
 import { prisma } from "../db";
 import { getEnv } from "../env";
-import { ComfyClient } from "../comfyui/client";
+import { ComfyClient, type ComfyOutputFile } from "../comfyui/client";
 import { ensureGpuReady } from "../gpu-manager";
 import { getPreset } from "../comfyui/workflows";
 import { resolveDownloadUrl, uploadBuffer, makeAssetKey } from "../storage";
 
-const VIDEO_EXT_BY_MIME: Record<string, string> = {
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "image/gif": "gif",
-};
-
-function inferExt(filename: string, fallback = "mp4"): string {
+function inferExt(filename: string, fallback: string): string {
   const m = filename.match(/\.([a-zA-Z0-9]+)$/);
   return m ? m[1].toLowerCase() : fallback;
 }
 
 function mimeFromExt(ext: string): string {
   switch (ext) {
-    case "mp4":
-      return "video/mp4";
-    case "webm":
-      return "video/webm";
-    case "gif":
-      return "image/gif";
+    case "glb":
+      return "model/gltf-binary";
+    case "gltf":
+      return "model/gltf+json";
+    case "obj":
+      return "text/plain";
+    case "ply":
+      return "application/octet-stream";
     case "png":
       return "image/png";
     case "jpg":
@@ -32,6 +28,41 @@ function mimeFromExt(ext: string): string {
     default:
       return "application/octet-stream";
   }
+}
+
+function isOutputFileLike(v: unknown): v is ComfyOutputFile {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.filename === "string" &&
+    typeof o.subfolder === "string" &&
+    typeof o.type === "string"
+  );
+}
+
+/**
+ * Walk through a ComfyUI history entry's outputs and find the first file whose
+ * filename ends with `expectedExt` (case-insensitive). SaveGLB does not always
+ * use a predictable ui dict key, so we scan all values defensively.
+ */
+function findOutputFile(
+  outputs: Record<string, Record<string, unknown>>,
+  expectedExt: string,
+): ComfyOutputFile | null {
+  const wantExt = expectedExt.toLowerCase();
+  let firstAny: ComfyOutputFile | null = null;
+  for (const nodeOutput of Object.values(outputs)) {
+    for (const value of Object.values(nodeOutput)) {
+      if (!Array.isArray(value)) continue;
+      for (const entry of value) {
+        if (!isOutputFileLike(entry)) continue;
+        const ext = inferExt(entry.filename, "");
+        if (ext === wantExt) return entry;
+        if (!firstAny) firstAny = entry;
+      }
+    }
+  }
+  return firstAny;
 }
 
 /**
@@ -84,11 +115,13 @@ export async function processJob(jobId: string): Promise<void> {
   const downloadUrl = await resolveDownloadUrl(job.inputImage);
   const imgRes = await fetch(downloadUrl);
   if (!imgRes.ok) {
+    const bodyPreview = await imgRes.text().catch(() => "");
+    const detail = bodyPreview ? ` (${bodyPreview.substring(0, 200)})` : "";
     await prisma.job.update({
       where: { id: jobId },
       data: {
         status: "failed",
-        errorMessage: `Failed to fetch input image: ${imgRes.status}`,
+        errorMessage: `Failed to fetch input image: ${imgRes.status}${detail}`,
         finishedAt: new Date(),
       },
     });
@@ -108,14 +141,12 @@ export async function processJob(jobId: string): Promise<void> {
   const workflow = preset.build({
     inputImageName: comfyInputName,
     prompt: job.prompt,
-    negativePrompt: job.negativePrompt ?? undefined,
-    width: job.width,
-    height: job.height,
-    length: job.length,
-    fps: job.fps,
     seed,
     steps: job.steps ?? undefined,
     cfg: job.cfg ?? undefined,
+    latentResolution: job.latentResolution ?? undefined,
+    octreeResolution: job.octreeResolution ?? undefined,
+    voxelThreshold: job.voxelThreshold ?? undefined,
   });
 
   const { prompt_id } = await comfy.submitPrompt(workflow);
@@ -147,21 +178,11 @@ export async function processJob(jobId: string): Promise<void> {
     return;
   }
 
-  // Find video / gif output across all node outputs.
+  // Scan all ComfyUI output node arrays for a file matching the preset's
+  // expected extension. SaveGLB does not always use a predictable ui dict key,
+  // so we walk every array value and match by filename suffix.
   const outputs = history.outputs ?? {};
-  let outputFile: { filename: string; subfolder: string; type: string; format?: string } | null =
-    null;
-  for (const nodeOutput of Object.values(outputs)) {
-    const candidates = [
-      ...(nodeOutput.gifs ?? []),
-      ...(nodeOutput.videos ?? []),
-      ...(nodeOutput.images ?? []).map((img) => ({ ...img, format: undefined as string | undefined })),
-    ];
-    if (candidates.length > 0) {
-      outputFile = candidates[0];
-      break;
-    }
-  }
+  const outputFile = findOutputFile(outputs, preset.outputExt);
   if (!outputFile) {
     await prisma.job.update({
       where: { id: jobId },
@@ -180,15 +201,15 @@ export async function processJob(jobId: string): Promise<void> {
     subfolder: outputFile.subfolder,
     type: outputFile.type,
   });
-  const outExt = inferExt(outputFile.filename, "mp4");
-  const outMime = VIDEO_EXT_BY_MIME[outputFile.format ?? ""] ?? mimeFromExt(outExt);
+  const outExt = inferExt(outputFile.filename, preset.outputExt);
+  const outMime = outExt === preset.outputExt ? preset.outputMime : mimeFromExt(outExt);
   const assetId = `out_${job.id}`;
   const key = makeAssetKey("output", assetId, outputFile.filename);
   const upload = await uploadBuffer({ key, body: outputBuf, contentType: outMime });
 
   const asset = await prisma.asset.create({
     data: {
-      kind: outExt === "gif" ? "output_image" : "output_video",
+      kind: preset.kind === "3d" ? "output_mesh" : "output",
       bucket: upload.bucket,
       key: upload.key,
       mimeType: upload.mimeType,
