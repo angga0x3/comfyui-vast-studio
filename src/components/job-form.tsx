@@ -176,7 +176,7 @@ export function JobForm({ onCreated }: { onCreated: () => void }) {
             <Input
               id="latres"
               type="number"
-              min={1}
+              min={64}
               max={8192}
               step={64}
               value={latentResolution}
