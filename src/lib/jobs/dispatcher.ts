@@ -115,11 +115,13 @@ export async function processJob(jobId: string): Promise<void> {
   const downloadUrl = await resolveDownloadUrl(job.inputImage);
   const imgRes = await fetch(downloadUrl);
   if (!imgRes.ok) {
+    const bodyPreview = await imgRes.text().catch(() => "");
+    const detail = bodyPreview ? ` (${bodyPreview.substring(0, 200)})` : "";
     await prisma.job.update({
       where: { id: jobId },
       data: {
         status: "failed",
-        errorMessage: `Failed to fetch input image: ${imgRes.status}`,
+        errorMessage: `Failed to fetch input image: ${imgRes.status}${detail}`,
         finishedAt: new Date(),
       },
     });
